@@ -13,6 +13,6 @@ COPY . .
 RUN chmod +x start.sh
 
 ENV PORT=8000
-EXPOSE $PORT
+EXPOSE 8000
 
 CMD ["./start.sh"]
