@@ -101,6 +101,14 @@ async def _run_command(cmd: list, capture: bool = True) -> subprocess.CompletedP
         logger.error(f"Command timed out: {' '.join(cmd[:3])}")
         raise
 
+def _command_error(result: subprocess.CompletedProcess, default_msg: str) -> str:
+    """Extract error message from subprocess result."""
+    if result.stderr:
+        return f"{default_msg}: {result.stderr[-500:]}"
+    if result.stdout:
+        return f"{default_msg}: {result.stdout[-500:]}"
+    return default_msg
+
 @app.post("/convert/yt-mp4/start")
 async def start_yt_mp4(req: YtRequest):
     if not _is_valid_url(req.url):
@@ -226,7 +234,7 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
             conversion_status[job_id].update({"progress": prog})
         
         if result.returncode != 0:
-            conversion_status[job_id].update({"status": "error", "error": "Download failed"})
+            conversion_status[job_id].update({"status": "error", "error": _command_error(result, "Download failed")})
             _cleanup_job(job_id, tmp)
             return
         
@@ -276,7 +284,7 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
             conversion_status[job_id].update({"progress": prog})
         
         if result.returncode != 0:
-            conversion_status[job_id].update({"status": "error", "error": "Download failed"})
+            conversion_status[job_id].update({"status": "error", "error": _command_error(result, "Download failed")})
             _cleanup_job(job_id, tmp)
             return
         
@@ -331,7 +339,7 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
         if result.returncode != 0:
             conversion_status[job_id].update({
                 "status": "error",
-                "error": f"Conversion failed: {result.stderr[-500:]}" if result.stderr else "Unknown error"
+                "error": _command_error(result, "Conversion failed")
             })
             _cleanup_job(job_id, tmp)
             return
