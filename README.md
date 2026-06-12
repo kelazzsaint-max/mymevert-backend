@@ -21,6 +21,7 @@ Buat file `.env` atau set environment variable:
 ```
 FFMPEG_PATH=/path/to/ffmpeg/bin  # Optional: default uses system PATH
 JOB_TTL_MINUTES=60  # Optional: default 60 minutes
+ALLOWED_ORIGINS=http://localhost:3000,https://mymevert.id
 ```
 
 ## Run
@@ -41,9 +42,30 @@ docker run -p 8000:8000 mymevert-backend
 1. Connect repository ke Railway
 2. Railway akan otomatis detect Dockerfile
 3. Set environment variables:
+   - `ALLOWED_ORIGINS` = `http://localhost:3000,https://mymevert.id`
    - `FFMPEG_PATH` (optional)
    - `JOB_TTL_MINUTES` (optional, default 60)
 4. Deploy
+
+## Frontend Connection
+
+Frontend (`mymevert.id`) harus connect ke backend Railway URL:
+
+```
+https://mymevert-backend-production.up.railway.app
+```
+
+API endpoints yang dipanggil frontend:
+- `POST /convert/yt-mp4/start`
+- `POST /convert/yt-mp3/start`
+- `POST /convert/local-mp3/start`
+- `GET /convert/status/{job_id}`
+- `GET /convert/download/{job_id}`
+
+Contoh base URL di frontend:
+```javascript
+const API_URL = "https://mymevert-backend-production.up.railway.app";
+```
 
 ## API Endpoints
 
