@@ -7,6 +7,7 @@ Backend API untuk konversi video YouTube ke MP4/MP3 dan konversi file lokal ke M
 - Python 3.8+
 - FFmpeg (diperlukan untuk penggabungan video/audio)
 - yt-dlp
+- Node.js (untuk JavaScript runtime yt-dlp)
 
 ## Installation
 

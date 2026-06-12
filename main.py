@@ -226,7 +226,7 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
         
         cmd = [
             "yt-dlp",
-            "-f", f"bestvideo[height<={req.resolution}][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<={req.resolution}][ext=mp4]+bestaudio[ext=m4a]/best[height<={req.resolution}]",
+            "-f", f"bestvideo[height<={req.resolution}][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<={req.resolution}][ext=mp4]+bestaudio[ext=m4a]/best[height<={req.resolution}]/best",
             "--merge-output-format", "mp4",
             "-o", out,
             req.url
