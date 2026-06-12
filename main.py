@@ -26,7 +26,7 @@ app = FastAPI()
 # CORS configuration for frontend connection
 ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS",
-    "http://localhost:3000,https://mymevert.id"
+    "http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app"
 ).split(",")
 
 app.add_middleware(
