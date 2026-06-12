@@ -226,6 +226,8 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
         
         cmd = [
             "yt-dlp",
+            "--js-runtimes", "nodejs",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "-f", f"bestvideo[height<={req.resolution}][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<={req.resolution}][ext=mp4]+bestaudio[ext=m4a]/best[height<={req.resolution}]/best",
             "--merge-output-format", "mp4",
             "-o", out,
@@ -283,6 +285,8 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
         
         cmd = [
             "yt-dlp",
+            "--js-runtimes", "nodejs",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "-x", "--audio-format", "mp3",
             "-o", out,
             req.url
