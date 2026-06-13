@@ -97,8 +97,6 @@ app.add_middleware(
 )
 
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "")
-COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER", "")  # chrome, firefox, edge
-COOKIES_FILE = os.environ.get("COOKIES_FILE", "")  # path to cookies.txt
 # Cleanup jobs older than 1 hour
 JOB_TTL_MINUTES = int(os.environ.get("JOB_TTL_MINUTES", "60"))
 
@@ -321,10 +319,6 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
             "-o", out,
             req.url
         ]
-        if COOKIES_BROWSER:
-            cmd.extend(["--cookies-from-browser", COOKIES_BROWSER])
-        if COOKIES_FILE:
-            cmd.extend(["--cookies", COOKIES_FILE])
         
         if FFMPEG_PATH:
             cmd.extend(["--ffmpeg-location", FFMPEG_PATH, "--postprocessor-args", "ffmpeg:-movflags +faststart"])
@@ -384,10 +378,6 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
             "-o", out,
             req.url
         ]
-        if COOKIES_BROWSER:
-            cmd.extend(["--cookies-from-browser", COOKIES_BROWSER])
-        if COOKIES_FILE:
-            cmd.extend(["--cookies", COOKIES_FILE])
         
         if FFMPEG_PATH:
             cmd.extend(["--ffmpeg-location", FFMPEG_PATH])
