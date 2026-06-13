@@ -51,3 +51,6 @@ logs/
 # Temp files
 tmp/
 temp/
+
+# Browser cookies
+cookies.txt
