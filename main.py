@@ -1,3 +1,4 @@
+import time
 import os
 import tempfile
 import subprocess
@@ -5,14 +6,15 @@ import shutil
 import uuid
 import asyncio
 import logging
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from urllib.parse import quote
 from pydantic import BaseModel
 from typing import Dict, Optional
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Configure logging
 logging.basicConfig(
@@ -22,6 +24,63 @@ logging.basicConfig(
 logger = logging.getLogger("mymevert")
 
 app = FastAPI()
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests with method, path, and duration."""
+    start_time = time.time()
+    
+    try:
+        response = await call_next(request)
+        duration = time.time() - start_time
+        
+        logger.info(
+            f"REQUEST {request.method} {request.url.path} | "
+            f"status={response.status_code} | "
+            f"duration={duration:.2f}s | "
+            f"client={request.client.host if request.client else 'unknown'}"
+        )
+        
+        return response
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(
+            f"REQUEST {request.method} {request.url.path} | "
+            f"status=500 | "
+            f"duration={duration:.2f}s | "
+            f"error={str(e)} | "
+            f"client={request.client.host if request.client else 'unknown'}",
+            exc_info=True
+        )
+        raise
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Log all unhandled exceptions with full traceback."""
+    logger.error(
+        f"UNHANDLED EXCEPTION {request.method} {request.url.path} | "
+        f"error={str(exc)} | "
+        f"client={request.client.host if request.client else 'unknown'}",
+        exc_info=True
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Log HTTP exceptions (404, 400, etc)."""
+    logger.warning(
+        f"HTTP EXCEPTION {request.method} {request.url.path} | "
+        f"status={exc.status_code} | "
+        f"detail={exc.detail} | "
+        f"client={request.client.host if request.client else 'unknown'}"
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
 
 # CORS configuration for frontend connection
 ALLOWED_ORIGINS = os.environ.get(
