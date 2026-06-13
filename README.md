@@ -23,6 +23,7 @@ Buat file `.env` atau set environment variable:
 FFMPEG_PATH=/path/to/ffmpeg/bin  # Optional: default uses system PATH
 JOB_TTL_MINUTES=60  # Optional: default 60 minutes
 ALLOWED_ORIGINS=http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app
+COOKIES_FILE=cookies.txt  # Optional: for YouTube authentication
 ```
 
 ## Run

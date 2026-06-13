@@ -98,6 +98,7 @@ app.add_middleware(
 
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "")
 COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER", "")  # chrome, firefox, edge
+COOKIES_FILE = os.environ.get("COOKIES_FILE", "")  # path to cookies.txt
 # Cleanup jobs older than 1 hour
 JOB_TTL_MINUTES = int(os.environ.get("JOB_TTL_MINUTES", "60"))
 
@@ -292,11 +293,10 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
             "-o", out,
             req.url
         ]
-        
-        # Tambahkan cookie browser jika diset
         if COOKIES_BROWSER:
-            cmd.insert(1, "--cookies-from-browser")
-            cmd.insert(2, COOKIES_BROWSER)
+            cmd.extend(["--cookies-from-browser", COOKIES_BROWSER])
+        if COOKIES_FILE:
+            cmd.extend(["--cookies", COOKIES_FILE])
         
         if FFMPEG_PATH:
             cmd.extend(["--ffmpeg-location", FFMPEG_PATH, "--postprocessor-args", "ffmpeg:-movflags +faststart"])
@@ -308,14 +308,6 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
             conversion_status[job_id].update({"progress": prog})
         
         if result.returncode != 0:
-            conversion_status[job_id].update({"status": "error", "error": _command_error(result, "Download failed")})
-            _cleanup_job(job_id, tmp)
-            return
-        
-        conversion_status[job_id].update({"step": "finalizing", "progress": 95})
-        
-        files = [f for f in os.listdir(tmp) if f.endswith(".mp4")]
-        if not files:
             conversion_status[job_id].update({"status": "error", "error": "Output file not found"})
             _cleanup_job(job_id, tmp)
             return
@@ -350,11 +342,10 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
             "-o", out,
             req.url
         ]
-        
-        # Tambahkan cookie browser jika diset
         if COOKIES_BROWSER:
-            cmd.insert(1, "--cookies-from-browser")
-            cmd.insert(2, COOKIES_BROWSER)
+            cmd.extend(["--cookies-from-browser", COOKIES_BROWSER])
+        if COOKIES_FILE:
+            cmd.extend(["--cookies", COOKIES_FILE])
         
         if FFMPEG_PATH:
             cmd.extend(["--ffmpeg-location", FFMPEG_PATH])
