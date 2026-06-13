@@ -166,10 +166,7 @@ async def health_check():
 # ============= POLLING ENDPOINTS =============
 
 def _is_valid_url(url: str) -> bool:
-    if not url:
-        return False
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
+    """Validate if URL is properly formatted."""
     try:
         result = urlparse(url)
         return all([result.scheme in ("http", "https"), result.netloc])
