@@ -143,7 +143,10 @@ def root():
 # ============= POLLING ENDPOINTS =============
 
 def _is_valid_url(url: str) -> bool:
-    """Validate if URL is properly formatted."""
+    if not url:
+        return False
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
     try:
         result = urlparse(url)
         return all([result.scheme in ("http", "https"), result.netloc])
