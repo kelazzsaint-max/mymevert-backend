@@ -140,6 +140,31 @@ async def startup_event():
 def root():
     return {"status": "MYMevert Backend Running"}
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint with dependency status."""
+    # Check ffmpeg
+    try:
+        ffmpeg_result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
+        ffmpeg_ok = ffmpeg_result.returncode == 0
+    except:
+        ffmpeg_ok = False
+    
+    # Check yt-dlp
+    try:
+        ytdlp_result = subprocess.run(["yt-dlp", "--version"], capture_output=True, timeout=5)
+        ytdlp_ok = ytdlp_result.returncode == 0
+    except:
+        ytdlp_ok = False
+    
+    return {
+        "status": "healthy",
+        "ffmpeg": ffmpeg_ok,
+        "yt-dlp": ytdlp_ok,
+        "jobs_pending": len([j for j in conversion_status.values() if j['status'] == 'pending']),
+        "jobs_total": len(conversion_status)
+    }
+
 # ============= POLLING ENDPOINTS =============
 
 def _is_valid_url(url: str) -> bool:
@@ -165,7 +190,7 @@ async def _run_command(cmd: list, capture: bool = True) -> subprocess.CompletedP
             timeout=300  # 5 minute timeout
         )
         if result.returncode != 0:
-            logger.error(f"Command failed: {result.stderr}")
+            logger.error(f"Command failed: {result.stderr[:500]}")
         return result
     except subprocess.TimeoutExpired:
         logger.error(f"Command timed out: {' '.join(cmd[:3])}")
@@ -306,14 +331,27 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
         
         result = await _run_command(cmd)
         
-        for prog in [30, 50, 70, 85]:
-            await asyncio.sleep(1)
-            conversion_status[job_id].update({"progress": prog})
-        
         if result.returncode != 0:
-            conversion_status[job_id].update({"status": "error", "error": "Output file not found"})
+            conversion_status[job_id].update({
+                "status": "error", 
+                "error": _command_error(result, "Download failed")
+            })
             _cleanup_job(job_id, tmp)
             return
+        
+        # Find the downloaded file
+        files = [f for f in os.listdir(tmp) if f.endswith(".mp4")]
+        if not files:
+            conversion_status[job_id].update({
+                "status": "error", 
+                "error": "Output file not found"
+            })
+            _cleanup_job(job_id, tmp)
+            return
+        
+        for prog in [30, 50, 70, 85]:
+            await asyncio.sleep(0.5)
+            conversion_status[job_id].update({"progress": prog})
         
         conversion_status[job_id].update({
             "status": "completed",
@@ -342,6 +380,7 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
             "--js-runtimes", "node",
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "-x", "--audio-format", "mp3",
+            "--audio-quality", "0",
             "-o", out,
             req.url
         ]
@@ -355,12 +394,11 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
         
         result = await _run_command(cmd)
         
-        for prog in [30, 50, 70, 85]:
-            await asyncio.sleep(0.5)
-            conversion_status[job_id].update({"progress": prog})
-        
         if result.returncode != 0:
-            conversion_status[job_id].update({"status": "error", "error": _command_error(result, "Download failed")})
+            conversion_status[job_id].update({
+                "status": "error", 
+                "error": _command_error(result, "Download failed")
+            })
             _cleanup_job(job_id, tmp)
             return
         
@@ -368,9 +406,16 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
         
         files = [f for f in os.listdir(tmp) if f.endswith(".mp3")]
         if not files:
-            conversion_status[job_id].update({"status": "error", "error": "Output file not found"})
+            conversion_status[job_id].update({
+                "status": "error", 
+                "error": "Output file not found"
+            })
             _cleanup_job(job_id, tmp)
             return
+        
+        for prog in [30, 50, 70, 85]:
+            await asyncio.sleep(0.5)
+            conversion_status[job_id].update({"progress": prog})
         
         conversion_status[job_id].update({
             "status": "completed",
@@ -408,10 +453,6 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
         ]
         result = await _run_command(cmd)
         
-        for prog in [40, 60, 80]:
-            await asyncio.sleep(0.5)
-            conversion_status[job_id].update({"progress": prog})
-        
         if result.returncode != 0:
             conversion_status[job_id].update({
                 "status": "error",
@@ -419,6 +460,10 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
             })
             _cleanup_job(job_id, tmp)
             return
+        
+        for prog in [40, 60, 80]:
+            await asyncio.sleep(0.5)
+            conversion_status[job_id].update({"progress": prog})
         
         if not os.path.exists(output_path):
             conversion_status[job_id].update({
