@@ -1,19 +1,21 @@
 import time
 import os
+import json
 import tempfile
 import subprocess
 import shutil
 import uuid
 import asyncio
 import logging
+import redis
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from urllib.parse import quote
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Optional
 from urllib.parse import urlparse
-from datetime import datetime, timedelta
+from datetime import datetime
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Configure logging
@@ -106,34 +108,67 @@ class YtRequest(BaseModel):
     url: str
     resolution: str = "720"
 
-# Store conversion status with timestamps
-conversion_status: Dict[str, dict] = {}
+# Redis client — initialized on startup
+redis_client: Optional[redis.Redis] = None
+
+def _redis_key(job_id: str) -> str:
+    return f"job:{job_id}"
+
+def _set_job(job_id: str, data: dict) -> None:
+    """Persist job status dict to Redis with TTL."""
+    try:
+        redis_client.set(
+            _redis_key(job_id),
+            json.dumps(data),
+            ex=JOB_TTL_MINUTES * 60
+        )
+        logger.debug(f"Redis SET job {job_id}")
+    except Exception as e:
+        logger.error(f"Redis SET failed for job {job_id}: {e}")
+
+def _get_job(job_id: str) -> Optional[dict]:
+    """Retrieve job status dict from Redis. Returns None if not found."""
+    try:
+        raw = redis_client.get(_redis_key(job_id))
+        if raw is None:
+            return None
+        return json.loads(raw)
+    except Exception as e:
+        logger.error(f"Redis GET failed for job {job_id}: {e}")
+        return None
+
+def _update_job(job_id: str, updates: dict) -> None:
+    """Fetch, merge updates, and re-persist job status to Redis."""
+    data = _get_job(job_id) or {}
+    data.update(updates)
+    _set_job(job_id, data)
+
+def _delete_job(job_id: str) -> None:
+    """Remove job key from Redis."""
+    try:
+        redis_client.delete(_redis_key(job_id))
+        logger.debug(f"Redis DEL job {job_id}")
+    except Exception as e:
+        logger.error(f"Redis DEL failed for job {job_id}: {e}")
 
 def _cleanup_job(job_id: str, tmp_dir: Optional[str] = None):
-    """Cleanup job status and temporary directory."""
-    conversion_status.pop(job_id, None)
+    """Remove job from Redis and delete temporary directory."""
+    _delete_job(job_id)
     if tmp_dir:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         logger.info(f"Cleaned up job {job_id} and tmp_dir {tmp_dir}")
 
-async def _periodic_cleanup():
-    """Periodically clean up old jobs to prevent memory leaks."""
-    while True:
-        await asyncio.sleep(300)  # Run every 5 minutes
-        cutoff = datetime.now() - timedelta(minutes=JOB_TTL_MINUTES)
-        to_remove = [
-            job_id for job_id, status in conversion_status.items()
-            if status.get("completed_at") and 
-            datetime.fromisoformat(status["completed_at"]) < cutoff
-        ]
-        for job_id in to_remove:
-            status = conversion_status.get(job_id, {})
-            _cleanup_job(job_id, status.get("tmp_dir"))
-            logger.info(f"Cleaned up expired job {job_id}")
-
 @app.on_event("startup")
 async def startup_event():
-    asyncio.create_task(_periodic_cleanup())
+    global redis_client
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+    try:
+        redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+        redis_client.ping()
+        logger.info(f"Connected to Redis at {redis_url}")
+    except Exception as e:
+        logger.error(f"Failed to connect to Redis at {redis_url}: {e}")
+        raise RuntimeError(f"Redis connection failed: {e}")
     logger.info("MYMevert Backend started")
 
 @app.get("/")
@@ -185,7 +220,7 @@ async def start_yt_mp4(req: YtRequest):
         raise HTTPException(status_code=400, detail="Invalid URL format")
     
     job_id = str(uuid.uuid4())
-    conversion_status[job_id] = {
+    _set_job(job_id, {
         "progress": 0,
         "step": "queued",
         "status": "pending",
@@ -193,7 +228,7 @@ async def start_yt_mp4(req: YtRequest):
         "tmp_dir": None,
         "error": None,
         "created_at": datetime.now().isoformat()
-    }
+    })
     asyncio.create_task(process_yt_mp4(job_id, req))
     logger.info(f"Started YT-MP4 job {job_id}")
     return {"job_id": job_id}
@@ -204,7 +239,7 @@ async def start_yt_mp3(req: YtRequest):
         raise HTTPException(status_code=400, detail="Invalid URL format")
     
     job_id = str(uuid.uuid4())
-    conversion_status[job_id] = {
+    _set_job(job_id, {
         "progress": 0,
         "step": "queued",
         "status": "pending",
@@ -212,7 +247,7 @@ async def start_yt_mp3(req: YtRequest):
         "tmp_dir": None,
         "error": None,
         "created_at": datetime.now().isoformat()
-    }
+    })
     asyncio.create_task(process_yt_mp3(job_id, req))
     logger.info(f"Started YT-MP3 job {job_id}")
     return {"job_id": job_id}
@@ -225,7 +260,7 @@ async def start_local_mp3(file: UploadFile = File(...)):
     file_content = await file.read()
     filename = file.filename
     
-    conversion_status[job_id] = {
+    _set_job(job_id, {
         "progress": 0,
         "step": "queued",
         "status": "pending",
@@ -233,7 +268,7 @@ async def start_local_mp3(file: UploadFile = File(...)):
         "tmp_dir": None,
         "error": None,
         "created_at": datetime.now().isoformat()
-    }
+    })
     
     asyncio.create_task(process_local_mp3(job_id, file_content, filename))
     logger.info(f"Started local-MP3 job {job_id}")
@@ -241,14 +276,14 @@ async def start_local_mp3(file: UploadFile = File(...)):
 
 @app.get("/convert/status/{job_id}")
 async def get_status(job_id: str):
-    status = conversion_status.get(job_id)
+    status = _get_job(job_id)
     if not status:
         raise HTTPException(status_code=404, detail="Job not found")
     return status
 
 @app.get("/convert/download/{job_id}")
 async def download_file(job_id: str, background_tasks: BackgroundTasks):
-    status = conversion_status.get(job_id)
+    status = _get_job(job_id)
     if not status or status["status"] != "completed":
         raise HTTPException(status_code=400, detail="File not ready")
     
@@ -264,7 +299,7 @@ async def download_file(job_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=404, detail="File not found")
     
     background_tasks.add_task(shutil.rmtree, tmp_dir, ignore_errors=True)
-    background_tasks.add_task(lambda: conversion_status.pop(job_id, None))
+    background_tasks.add_task(_delete_job, job_id)
     
     media_type = "video/mp4" if filename.endswith(".mp4") else "audio/mpeg"
     
@@ -280,12 +315,12 @@ async def download_file(job_id: str, background_tasks: BackgroundTasks):
 
 async def process_yt_mp4(job_id: str, req: YtRequest):
     tmp = tempfile.mkdtemp()
-    conversion_status[job_id]["tmp_dir"] = tmp
+    _update_job(job_id, {"tmp_dir": tmp})
     
     try:
-        conversion_status[job_id].update({"step": "preparing", "progress": 5})
+        _update_job(job_id, {"step": "preparing", "progress": 5})
         out = os.path.join(tmp, "%(title)s.%(ext)s")
-        conversion_status[job_id].update({"step": "downloading", "progress": 10})
+        _update_job(job_id, {"step": "downloading", "progress": 10})
         
         cmd = [
             "yt-dlp",
@@ -308,14 +343,14 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
         
         for prog in [30, 50, 70, 85]:
             await asyncio.sleep(1)
-            conversion_status[job_id].update({"progress": prog})
+            _update_job(job_id, {"progress": prog})
         
         if result.returncode != 0:
-            conversion_status[job_id].update({"status": "error", "error": "Output file not found"})
+            _update_job(job_id, {"status": "error", "error": "Output file not found"})
             _cleanup_job(job_id, tmp)
             return
         
-        conversion_status[job_id].update({
+        _update_job(job_id, {
             "status": "completed",
             "progress": 100,
             "filename": files[0],
@@ -324,18 +359,18 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
         logger.info(f"Completed YT-MP4 job {job_id}")
         
     except Exception as e:
-        conversion_status[job_id].update({"status": "error", "error": str(e)})
+        _update_job(job_id, {"status": "error", "error": str(e)})
         logger.error(f"YT-MP4 job {job_id} failed: {e}")
         _cleanup_job(job_id, tmp)
 
 async def process_yt_mp3(job_id: str, req: YtRequest):
     tmp = tempfile.mkdtemp()
-    conversion_status[job_id]["tmp_dir"] = tmp
+    _update_job(job_id, {"tmp_dir": tmp})
     
     try:
-        conversion_status[job_id].update({"step": "preparing", "progress": 5})
+        _update_job(job_id, {"step": "preparing", "progress": 5})
         out = os.path.join(tmp, "%(title)s.%(ext)s")
-        conversion_status[job_id].update({"step": "downloading", "progress": 10})
+        _update_job(job_id, {"step": "downloading", "progress": 10})
         
         cmd = [
             "yt-dlp",
@@ -357,22 +392,22 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
         
         for prog in [30, 50, 70, 85]:
             await asyncio.sleep(0.5)
-            conversion_status[job_id].update({"progress": prog})
+            _update_job(job_id, {"progress": prog})
         
         if result.returncode != 0:
-            conversion_status[job_id].update({"status": "error", "error": _command_error(result, "Download failed")})
+            _update_job(job_id, {"status": "error", "error": _command_error(result, "Download failed")})
             _cleanup_job(job_id, tmp)
             return
         
-        conversion_status[job_id].update({"step": "finalizing", "progress": 95})
+        _update_job(job_id, {"step": "finalizing", "progress": 95})
         
         files = [f for f in os.listdir(tmp) if f.endswith(".mp3")]
         if not files:
-            conversion_status[job_id].update({"status": "error", "error": "Output file not found"})
+            _update_job(job_id, {"status": "error", "error": "Output file not found"})
             _cleanup_job(job_id, tmp)
             return
         
-        conversion_status[job_id].update({
+        _update_job(job_id, {
             "status": "completed",
             "progress": 100,
             "filename": files[0],
@@ -381,16 +416,16 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
         logger.info(f"Completed YT-MP3 job {job_id}")
         
     except Exception as e:
-        conversion_status[job_id].update({"status": "error", "error": str(e)})
+        _update_job(job_id, {"status": "error", "error": str(e)})
         logger.error(f"YT-MP3 job {job_id} failed: {e}")
         _cleanup_job(job_id, tmp)
 
 async def process_local_mp3(job_id: str, file_content: bytes, original_filename: str):
     tmp = tempfile.mkdtemp()
-    conversion_status[job_id]["tmp_dir"] = tmp
+    _update_job(job_id, {"tmp_dir": tmp})
     
     try:
-        conversion_status[job_id].update({"step": "preparing", "progress": 5})
+        _update_job(job_id, {"step": "preparing", "progress": 5})
         
         input_path = os.path.join(tmp, original_filename)
         original_name = os.path.splitext(original_filename)[0]
@@ -399,7 +434,7 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
         with open(input_path, "wb") as f:
             f.write(file_content)
         
-        conversion_status[job_id].update({"step": "converting", "progress": 20})
+        _update_job(job_id, {"step": "converting", "progress": 20})
         
         cmd = [
             "ffmpeg", "-i", input_path,
@@ -410,10 +445,10 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
         
         for prog in [40, 60, 80]:
             await asyncio.sleep(0.5)
-            conversion_status[job_id].update({"progress": prog})
+            _update_job(job_id, {"progress": prog})
         
         if result.returncode != 0:
-            conversion_status[job_id].update({
+            _update_job(job_id, {
                 "status": "error",
                 "error": _command_error(result, "Conversion failed")
             })
@@ -421,14 +456,14 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
             return
         
         if not os.path.exists(output_path):
-            conversion_status[job_id].update({
+            _update_job(job_id, {
                 "status": "error",
                 "error": "Output file not found"
             })
             _cleanup_job(job_id, tmp)
             return
         
-        conversion_status[job_id].update({
+        _update_job(job_id, {
             "status": "completed",
             "progress": 100,
             "filename": f"{original_name}.mp3",
@@ -437,6 +472,6 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
         logger.info(f"Completed local-MP3 job {job_id}")
         
     except Exception as e:
-        conversion_status[job_id].update({"status": "error", "error": str(e)})
+        _update_job(job_id, {"status": "error", "error": str(e)})
         logger.error(f"Local-MP3 job {job_id} failed: {e}")
         _cleanup_job(job_id, tmp)
