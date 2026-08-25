@@ -10,3 +10,13 @@ cookies.txt
 temp/
 tmp/
 .DS_Store
+
+# Deployment files (managed per platform)
+koyeb.yaml
+deploy-cloud-run.sh
+deploy-koyeb.sh
+.gcloudignore
+start.sh
+Procfile
+runtime.txt
+.dockerignore

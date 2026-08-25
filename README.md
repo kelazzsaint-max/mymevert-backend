@@ -4,10 +4,20 @@ Backend API untuk konversi video YouTube ke MP4/MP3 dan konversi file lokal ke M
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.12+
 - FFmpeg (diperlukan untuk penggabungan video/audio)
 - yt-dlp
 - Node.js (untuk JavaScript runtime yt-dlp)
+
+## Upgrade Changelog
+
+- Python 3.11 → 3.12
+- FastAPI 0.100+ → 0.111+ (lifespan replacement for on_event)
+- Uvicorn 0.23+ → 0.30+ (standard extras)
+- yt-dlp 2023+ → 2024.7.1+ (YouTube compatibility)
+- python-multipart 0.0.6+ → 0.0.9+
+- Fixed deprecated `text=True` in subprocess
+- Timezone-aware datetime handling
 
 ## Installation
 
@@ -22,6 +32,7 @@ Buat file `.env` atau set environment variable:
 ```
 FFMPEG_PATH=/path/to/ffmpeg/bin  # Optional: default uses system PATH
 JOB_TTL_MINUTES=60  # Optional: default 60 minutes
+MAX_CONCURRENT_JOBS=2  # Optional: default 2
 ALLOWED_ORIGINS=http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app
 COOKIES_FILE=cookies.txt  # Optional: for YouTube authentication
 ```
@@ -39,22 +50,59 @@ docker build -t mymevert-backend .
 docker run -p 8000:8000 mymevert-backend
 ```
 
-## Railway Deployment
+## Deployment
 
-1. Connect repository ke Railway
-2. Railway akan otomatis detect Dockerfile
-3. Set environment variables:
-   - `ALLOWED_ORIGINS` = `http://localhost:3000,https://mymevert.id`
-   - `FFMPEG_PATH` (optional)
-   - `JOB_TTL_MINUTES` (optional, default 60)
-4. Deploy
+Railway free tier sudah habis. Sekarang deploy ke **Hugging Face Spaces** (gratis dan stabil):
+
+### Deploy ke Hugging Face Spaces
+
+1. Buat akun di [Hugging Face](https://huggingface.co)
+2. Buat Space baru:
+   - Pilih **"Docker"** sebagai Space SDK
+   - Beri nama space, contoh: `mymevert-backend`
+   - Set visibility sesuai kebutuhan (Public/Private)
+3. Upload file ini ke Space (atau push via Git):
+   ```
+   main.py
+   requirements.txt
+   Dockerfile
+   .env.example
+   ```
+4. Di Settings Space, set Environment Variables:
+   - `ALLOWED_ORIGINS` = `http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app`
+   - `JOB_TTL_MINUTES` = `60`
+   - `MAX_CONCURRENT_JOBS` = `2`
+5. Tunggu build selesai (sekitar 2-3 menit)
+6. Backend URL akan tersedia di: `https://<username>-mymevert-backend.hf.space`
+
+Atau deploy via Git:
+```bash
+# Install HF CLI
+pip install huggingface_hub
+
+# Login
+huggingface-cli login
+
+# Push ke Space
+git remote add space https://huggingface.co/spaces/<username>/<space-name>
+git push space main
+```
+
+### Catatan Penting untuk Hugging Face Spaces
+
+- HF Spaces menggunakan **port 7860** secara default
+- Dockerfile sudah dikonfigurasi untuk membaca `PORT` dari environment variable
+- Set `PORT=7860` di environment variables HF Spaces
+- Free tier HF Spaces memiliki resource terbatas (CPU 2vCPU, RAM 16GB)
+- Untuk performa lebih baik, pertimbangkan upgrade ke Pro/Enterprise
+- Tidak perlu `runtime.txt` atau `Procfile` untuk Docker Spaces
 
 ## Frontend Connection
 
-Frontend (`mymevert.id`) harus connect ke backend Railway URL:
+Setelah deploy, dapatkan URL backend dan update di frontend:
 
 ```
-https://mymevert-backend-production.up.railway.app
+https://<backend-service-url>
 ```
 
 API endpoints yang dipanggil frontend:
@@ -64,16 +112,12 @@ API endpoints yang dipanggil frontend:
 - `GET /convert/status/{job_id}`
 - `GET /convert/download/{job_id}`
 
-Contoh base URL di frontend:
-```javascript
-const API_URL = "https://mymevert-backend-production.up.railway.app";
-```
-
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Health check |
+| `/health` | GET | Detailed health check with dependency status |
 | `/convert/yt-mp4/start` | POST | Mulai konversi YouTube ke MP4 |
 | `/convert/yt-mp3/start` | POST | Mulai konversi YouTube ke MP3 |
 | `/convert/local-mp3/start` | POST | Mulai konversi file lokal ke MP3 |
@@ -116,3 +160,4 @@ const API_URL = "https://mymevert-backend-production.up.railway.app";
 - Job akan otomatis dibersihkan setelah `JOB_TTL_MINUTES`
 - File temp akan dihapus setelah download selesai
 - Error jobs akan otomatis dibersihkan dari memory
+- Maksimal `MAX_CONCURRENT_JOBS` job berjalan bersamaan (default 2)

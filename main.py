@@ -6,6 +6,7 @@ import shutil
 import uuid
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -13,7 +14,7 @@ from urllib.parse import quote
 from pydantic import BaseModel
 from typing import Dict, Optional
 from urllib.parse import urlparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Configure logging
@@ -23,7 +24,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mymevert")
 
-app = FastAPI()
+
+async def startup_event():
+    asyncio.create_task(_periodic_cleanup())
+    logger.info("MYMevert Backend started")
+
+
+async def shutdown_event():
+    logger.info("MYMevert Backend shutting down")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await startup_event()
+    yield
+    await shutdown_event()
+
+
+app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -97,7 +115,7 @@ app.add_middleware(
 )
 
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "")
-# Cleanup jobs older than 1 hour
+MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "3"))
 JOB_TTL_MINUTES = int(os.environ.get("JOB_TTL_MINUTES", "60"))
 
 class YtRequest(BaseModel):
@@ -106,6 +124,19 @@ class YtRequest(BaseModel):
 
 # Store conversion status with timestamps
 conversion_status: Dict[str, dict] = {}
+job_semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
+
+def _try_acquire_job_slot() -> bool:
+    try:
+        return job_semaphore.acquire(blocking=False)
+    except ValueError:
+        return False
+
+def _release_job_slot():
+    try:
+        job_semaphore.release()
+    except ValueError:
+        pass
 
 def _cleanup_job(job_id: str, tmp_dir: Optional[str] = None):
     """Cleanup job status and temporary directory."""
@@ -118,7 +149,7 @@ async def _periodic_cleanup():
     """Periodically clean up old jobs to prevent memory leaks."""
     while True:
         await asyncio.sleep(300)  # Run every 5 minutes
-        cutoff = datetime.now() - timedelta(minutes=JOB_TTL_MINUTES)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=JOB_TTL_MINUTES)
         to_remove = [
             job_id for job_id, status in conversion_status.items()
             if status.get("completed_at") and 
@@ -129,10 +160,6 @@ async def _periodic_cleanup():
             _cleanup_job(job_id, status.get("tmp_dir"))
             logger.info(f"Cleaned up expired job {job_id}")
 
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(_periodic_cleanup())
-    logger.info("MYMevert Backend started")
 
 @app.get("/")
 def root():
@@ -166,10 +193,24 @@ async def health_check():
 # ============= POLLING ENDPOINTS =============
 
 def _is_valid_url(url: str) -> bool:
-    """Validate if URL is properly formatted."""
+    if not url:
+        return False
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
     try:
         result = urlparse(url)
-        return all([result.scheme in ("http", "https"), result.netloc])
+        netloc = result.netloc.lower()
+        if not netloc or result.scheme not in ("http", "https"):
+            return False
+        return any(
+            netloc == host or netloc.endswith("." + host)
+            for host in (
+                "youtube.com",
+                "youtu.be",
+                "m.youtube.com",
+                "www.youtube.com",
+            )
+        )
     except Exception:
         return False
 
@@ -181,7 +222,8 @@ async def _run_command(cmd: list, capture: bool = True) -> subprocess.CompletedP
             subprocess.run,
             cmd,
             capture_output=capture,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300  # 5 minute timeout
         )
         if result.returncode != 0:
@@ -203,6 +245,8 @@ def _command_error(result: subprocess.CompletedProcess, default_msg: str) -> str
 async def start_yt_mp4(req: YtRequest):
     if not _is_valid_url(req.url):
         raise HTTPException(status_code=400, detail="Invalid URL format")
+    if not _try_acquire_job_slot():
+        raise HTTPException(status_code=429, detail="Server sedang sibuk, coba lagi sebentar")
     
     job_id = str(uuid.uuid4())
     conversion_status[job_id] = {
@@ -212,7 +256,7 @@ async def start_yt_mp4(req: YtRequest):
         "filename": None,
         "tmp_dir": None,
         "error": None,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     asyncio.create_task(process_yt_mp4(job_id, req))
     logger.info(f"Started YT-MP4 job {job_id}")
@@ -222,6 +266,8 @@ async def start_yt_mp4(req: YtRequest):
 async def start_yt_mp3(req: YtRequest):
     if not _is_valid_url(req.url):
         raise HTTPException(status_code=400, detail="Invalid URL format")
+    if not _try_acquire_job_slot():
+        raise HTTPException(status_code=429, detail="Server sedang sibuk, coba lagi sebentar")
     
     job_id = str(uuid.uuid4())
     conversion_status[job_id] = {
@@ -231,7 +277,7 @@ async def start_yt_mp3(req: YtRequest):
         "filename": None,
         "tmp_dir": None,
         "error": None,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     asyncio.create_task(process_yt_mp3(job_id, req))
     logger.info(f"Started YT-MP3 job {job_id}")
@@ -239,12 +285,12 @@ async def start_yt_mp3(req: YtRequest):
 
 @app.post("/convert/local-mp3/start")
 async def start_local_mp3(file: UploadFile = File(...)):
-    job_id = str(uuid.uuid4())
+    if not _try_acquire_job_slot():
+        raise HTTPException(status_code=429, detail="Server sedang sibuk, coba lagi sebentar")
     
-    # Read file now (before background task)
+    job_id = str(uuid.uuid4())
     file_content = await file.read()
     filename = file.filename
-    
     conversion_status[job_id] = {
         "progress": 0,
         "step": "queued",
@@ -252,9 +298,8 @@ async def start_local_mp3(file: UploadFile = File(...)):
         "filename": None,
         "tmp_dir": None,
         "error": None,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
-    
     asyncio.create_task(process_local_mp3(job_id, file_content, filename))
     logger.info(f"Started local-MP3 job {job_id}")
     return {"job_id": job_id}
@@ -348,7 +393,7 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
             "status": "completed",
             "progress": 100,
             "filename": files[0],
-            "completed_at": datetime.now().isoformat()
+            "completed_at": datetime.now(timezone.utc).isoformat()
         })
         logger.info(f"Completed YT-MP4 job {job_id}")
         
@@ -356,6 +401,8 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
         conversion_status[job_id].update({"status": "error", "error": str(e)})
         logger.error(f"YT-MP4 job {job_id} failed: {e}")
         _cleanup_job(job_id, tmp)
+    finally:
+        _release_job_slot()
 
 async def process_yt_mp3(job_id: str, req: YtRequest):
     tmp = tempfile.mkdtemp()
@@ -408,7 +455,7 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
             "status": "completed",
             "progress": 100,
             "filename": files[0],
-            "completed_at": datetime.now().isoformat()
+            "completed_at": datetime.now(timezone.utc).isoformat()
         })
         logger.info(f"Completed YT-MP3 job {job_id}")
         
@@ -416,6 +463,8 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
         conversion_status[job_id].update({"status": "error", "error": str(e)})
         logger.error(f"YT-MP3 job {job_id} failed: {e}")
         _cleanup_job(job_id, tmp)
+    finally:
+        _release_job_slot()
 
 async def process_local_mp3(job_id: str, file_content: bytes, original_filename: str):
     tmp = tempfile.mkdtemp()
@@ -464,7 +513,7 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
             "status": "completed",
             "progress": 100,
             "filename": f"{original_name}.mp3",
-            "completed_at": datetime.now().isoformat()
+            "completed_at": datetime.now(timezone.utc).isoformat()
         })
         logger.info(f"Completed local-MP3 job {job_id}")
         
@@ -472,3 +521,5 @@ async def process_local_mp3(job_id: str, file_content: bytes, original_filename:
         conversion_status[job_id].update({"status": "error", "error": str(e)})
         logger.error(f"Local-MP3 job {job_id} failed: {e}")
         _cleanup_job(job_id, tmp)
+    finally:
+        _release_job_slot()
