@@ -52,7 +52,36 @@ docker run -p 8000:8000 mymevert-backend
 
 ## Deployment
 
-Siap deploy ke platform pilihan kamu. Pastikan Dockerfile sudah ikut di-repo dan environment variables sudah diset di platform deployer.
+Siap deploy ke Koyeb free tier:
+
+### Deploy ke Koyeb Free Tier
+
+1. Buat akun di [Koyeb](https://www.koyeb.com)
+2. Di dashboard, klik **"Create Service"**
+3. Pilih **"Docker"** sebagai builder
+4. Pilih **"Deploy from a GitHub repository"** atau **"Deploy from a Git repository URL"** dan masukkan repo GitHub-mu
+5. Isi konfigurasi:
+   - **Service name**: `mymevert-backend`
+   - **Region**: pilih terdekat
+   - **Instance**: pilih **Nano** (free tier)
+   - **Port**: `8000`
+6. Di bagian **Environment variables**, tambahkan:
+   - `ALLOWED_ORIGINS` = `http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app`
+   - `JOB_TTL_MINUTES` = `60`
+   - `MAX_CONCURRENT_JOBS` = `2`
+   - `PORT` = `8000`
+7. Klik **"Deploy"**
+8. Tunggu build dan deploy selesai
+9. Backend URL akan tersedia di: `https://mymevert-backend-<username>.koyeb.app`
+
+### Catatan Penting untuk Koyeb Free Tier
+
+- Koyeb Nano free tier: **256 MB RAM**, **0.1 CPU**
+- Free tier mencakup **1 service** dengan **512 MB outbound traffic/bulan**
+- Service **tidak sleep** secara otomatis
+- Dockerfile kamu sudah siap pakai, Koyeb akan otomatis build dari Dockerfile
+- Pastikan `requirements.txt` terupdate dan `Dockerfile` ada di repo
+- Untuk performa lebih baik, kamu bisa upgrade ke paid plan (Starter $5.5/bulan)
 
 ## Frontend Connection
 
