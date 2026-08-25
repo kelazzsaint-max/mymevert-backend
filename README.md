@@ -52,48 +52,7 @@ docker run -p 8000:8000 mymevert-backend
 
 ## Deployment
 
-Railway free tier sudah habis. Sekarang deploy ke **Render** (gratis):
-
-### Deploy ke Render Free Tier
-
-1. Buat akun di [Render](https://render.com)
-2. Di dashboard, klik **"New +"** → **"Web Service"**
-3. Pilih **"Build and deploy from a Git repository"** dan hubungkan repo GitHub-mu
-4. Isi konfigurasi:
-   - **Name**: `mymevert-backend`
-   - **Environment**: `Docker`
-   - **Plan**: Pilih **Free** ($0/bulan)
-   - **Branch**: `main` (atau branch yang kamu pakai)
-5. Di bagian **Environment Variables**, tambahkan:
-   - `ALLOWED_ORIGINS` = `http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app`
-   - `JOB_TTL_MINUTES` = `60`
-   - `MAX_CONCURRENT_JOBS` = `2`
-   - `PORT` = `8000`
-6. Klik **"Create Web Service"**
-7. Tunggu build dan deploy selesai (sekitar 3-5 menit)
-8. Backend URL akan tersedia di: `https://mymevert-backend.onrender.com`
-
-### Catatan Penting untuk Render Free Tier
-
-- Render free tier akan **sleep** setelah 15 menit tidak ada request
-- Request pertama setelah sleep butuh waktu ~30 detik untuk wake up
-- Resource: **512 MB RAM**, shared CPU
-- Free tier mencakup **750 jam/bulan** (cukup untuk 1 service 24/7)
-- Dockerfile kamu sudah siap pakai, Render akan otomatis build dari Dockerfile
-- Set `PORT=8000` di environment variables (Render menggunakan port 10000 secara default untuk non-Docker, tapi Dockerfile kamu sudah handle `PORT` env)
-- Untuk performa lebih baik, kamu bisa upgrade ke paid plan ($7/bulan) agar service tidak sleep
-
-### Deploy via Git (alternatif)
-
-```bash
-# Push ke GitHub, lalu hubungkan repo di Render dashboard
-git push origin main
-```
-
-Setelah deploy, update URL backend di frontend kamu ke:
-```
-https://mymevert-backend.onrender.com
-```
+Siap deploy ke platform pilihan kamu. Pastikan Dockerfile sudah ikut di-repo dan environment variables sudah diset di platform deployer.
 
 ## Frontend Connection
 
