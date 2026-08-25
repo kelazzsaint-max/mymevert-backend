@@ -19,4 +19,3 @@ deploy-koyeb.sh
 start.sh
 Procfile
 runtime.txt
-.dockerignore
