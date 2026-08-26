@@ -1,0 +1,28 @@
+# Render free tier: 512MB RAM, 0.1 CPU
+# Deploy via: render.yaml below + connect repo in Render dashboard
+services:
+  - type: web
+    name: mymevert-backend
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: MAX_CONCURRENT_JOBS
+        value: 1
+      - key: JOB_TTL_MINUTES
+        value: 30
+      - key: CONVERSION_TIMEOUT
+        value: 300
+      - key: MAX_UPLOAD_SIZE_MB
+        value: 100
+      - key: AUDIO_BITRATE_KBPS
+        value: 192
+      - key: ALLOWED_ORIGINS
+        value: https://mymevert.id,https://mymevert-id.vercel.app
+      - key: PYTHONUNBUFFERED
+        value: 1
+
+# Notes:
+# - Plan "free" = shared CPU, 512MB RAM, 750hrs/month
+# - For long videos, upgrade to "starter" ($7/mo, 512MB, 0.5 CPU, always-on)
+# - Set FFMPEG_PATH and COOKIES_FILE in Render dashboard (not in this file)

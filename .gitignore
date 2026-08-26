@@ -1,21 +1,22 @@
+venv/
 __pycache__/
 *.py[cod]
 *.so
+*.pyc
+*.pyo
 .Python
-env/
-venv/
 .env
+.env.*
+!.env.example
 cookies.txt
 *.log
 temp/
 tmp/
 .DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Deployment files (managed per platform)
-koyeb.yaml
-deploy-cloud-run.sh
-deploy-koyeb.sh
-.gcloudignore
-start.sh
-Procfile
-runtime.txt
+# Ignore vscode AI rules
+.github/instructions/codacy.instructions.md
