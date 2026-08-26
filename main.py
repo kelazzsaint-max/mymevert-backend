@@ -41,6 +41,10 @@ _shutting_down = False
 
 
 def _try_acquire_job_slot() -> bool:
+    if job_semaphore._value > 0:
+        job_semaphore._value -= 1
+        return True
+    return False
     try:
         return job_semaphore.acquire(blocking=False)
     except ValueError:
@@ -80,7 +84,7 @@ async def _periodic_cleanup():
             logger.info(f"Cleaned up expired job {job_id}")
 
 
-async def _cleanup_orphan_dirs():
+def _cleanup_orphan_dirs():
     """Remove stale temp directories from a previous run."""
     work_dir = os.environ.get("TMPDIR", tempfile.gettempdir())
     try:
@@ -115,6 +119,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+raw_origins = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app"
+)
+ALLOWED_ORIGINS = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+    allow_credentials=True,
+)
 
 
 @app.middleware("http")
