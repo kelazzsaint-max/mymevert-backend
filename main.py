@@ -29,7 +29,7 @@ PORT = int(os.environ.get("PORT", "8000"))
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "")
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
 JOB_TTL_MINUTES = int(os.environ.get("JOB_TTL_MINUTES", "30"))
-CONVERSION_TIMEOUT = int(os.environ.get("CONVERSION_TIMEOUT", "300"))
+CONVERSION_TIMEOUT = int(os.environ.get("CONVERSION_TIMEOUT", "900"))
 MAX_UPLOAD_SIZE_MB = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "100"))
 MAX_UPLOAD_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 AUDIO_BITRATE_KBPS = os.environ.get("AUDIO_BITRATE_KBPS", "192")
@@ -498,11 +498,11 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
             "--js-runtimes", "node",
             "--no-mtime",
             "--no-playlist",
-            "--throttled-rate", "100K",
             "--user-agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--progress",
+            "--newline",
             "-f",
             f"bestvideo[height<={req.resolution}][ext=mp4]+bestaudio[ext=m4a]/"
             f"best[height<={req.resolution}]",
@@ -575,11 +575,11 @@ async def process_yt_mp3(job_id: str, req: YtRequest):
             "--js-runtimes", "node",
             "--no-mtime",
             "--no-playlist",
-            "--throttled-rate", "100K",
             "--user-agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--progress",
+            "--newline",
             "-x", "--audio-format", "mp3",
             "--audio-quality", "2",
             "-o", out,
