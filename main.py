@@ -191,20 +191,6 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     )
 
 
-ALLOWED_ORIGINS = os.environ.get(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app"
-).split(",")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["Content-Disposition"]
-)
-
-
 class YtRequest(BaseModel):
     url: str
     resolution: str = "720"
