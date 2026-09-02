@@ -503,9 +503,8 @@ async def process_yt_mp4(job_id: str, req: YtRequest):
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--progress",
             "--newline",
-            "-f",
-            f"bestvideo[height<={req.resolution}][ext=mp4]+bestaudio[ext=m4a]/"
-            f"best[height<={req.resolution}]",
+            "-S", f"res:{req.resolution},vcodec:avc1,acodec:aac",
+            "-f", "bv*+ba/b",
             "--merge-output-format", "mp4",
             "-o", out,
             req.url,

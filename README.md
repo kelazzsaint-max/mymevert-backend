@@ -1,6 +1,6 @@
 # MYMevert Backend
 
-Backend API untuk konversi video YouTube ke MP4/MP3 dan konversi file lokal ke MP3. Dirancang untuk berjalan di Render free tier (512MB RAM, 0.1 CPU).
+Backend API untuk konversi video YouTube ke MP4/MP3 dan konversi file lokal ke MP3. Saat ini dijalankan secara lokal dan diekspos ke internet via ngrok tunnel.
 
 ## Requirements
 
@@ -21,13 +21,13 @@ Buat file `.env` atau set environment variable:
 
 ```
 FFMPEG_PATH=/path/to/ffmpeg/bin          # Optional: default pakai system PATH
-MAX_CONCURRENT_JOBS=1                     # Default 1 (free tier) - atur 2-3 untuk RAM lebih besar
+MAX_CONCURRENT_JOBS=1                     # Default 1 - atur sesuai kapasitas CPU/RAM
 JOB_TTL_MINUTES=30                        # Default 30 - TTL cleanup job
-CONVERSION_TIMEOUT=300                    # Default 300s - timeout per konversi
+CONVERSION_TIMEOUT=900                    # Default 900s (15 menit) - timeout per konversi
 MAX_UPLOAD_SIZE_MB=100                    # Default 100MB - batas ukuran upload lokal
-AUDIO_BITRATE_KBPS=192                    # Default 192k - bitrate MP3 (turunkan untuk CPU lemah)
+AUDIO_BITRATE_KBPS=192                    # Default 192k - bitrate MP3
 ALLOWED_ORIGINS=http://localhost:3000,https://mymevert.id,https://mymevert-id.vercel.app
-PORT=8000                                 # Render inject otomatis
+PORT=8000                                 # Port untuk uvicorn
 ```
 
 ## Run
@@ -36,11 +36,22 @@ PORT=8000                                 # Render inject otomatis
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Atau menggunakan start.py:
+## Menjalankan Lokal via ngrok
 
-```bash
-python start.py
-```
+Untuk mengekspos backend ke internet:
+
+1. **Terminal 1** - Jalankan uvicorn:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+
+2. **Terminal 2** - Jalankan ngrok tunnel:
+   ```bash
+   ./ngrok.exe http --url=<domain-static> 8000
+   ```
+   Ganti `<domain-static>` dengan domain static kamu (misalnya `stauroscopically-fluorescent-shelli.ngrok-free.dev`).
+
+3. Update `NEXT_PUBLIC_API_URL` di Vercel dengan URL ngrok kamu (misalnya `https://stauroscopically-fluorescent-shelli.ngrok-free.dev`).
 
 ## Docker
 
@@ -49,45 +60,12 @@ docker build -t mymevert-backend .
 docker run -p 8000:8000 mymevert-backend
 ```
 
-## Deploy to Render
-
-### Option 1: Using render.yaml (recommended)
-
-Commit `render.yaml` ke repo, kemudian di Render dashboard:
-1. Buat Web Service baru
-2. Pilih repomu
-3. Render akan otomatis mendeteksi `render.yaml`
-4. Pilih plan **Free** (512MB RAM)
-
-### Option 2: Manual setup
-
-1. Buat Web Service di Render dashboard
-2. Pilih repomu
-3. Set Environment ke **Docker**
-4. Build Command: *(Render menggunakan Dockerfile)*
-5. Start Command: *(Render menggunakan CMD dari Dockerfile)*
-6. Pilih plan **Free**
-
-### Render Free Tier Limitations
-
-| Limitation | Impact | Solution |
-|---|---|---|
-| 512MB RAM | Video panjang bisa OOM | Set `MAX_CONCURRENT_JOBS=1`, `CONVERSION_TIMEOUT=300` |
-| 0.1 CPU (shared) | Konversi lambat | Set `AUDIO_BITRATE_KBPS=128` untuk konversi lebih cepat |
-| Spin down 15 min | Cold start 30-60s | Upgrade ke Starter ($7/mo) untuk always-on |
-| Ephemeral disk | File temp hilang pada redeploy | Semua file diproses di memory/tmp, dihapus setelah download |
-
-### Environment Variables di Render
-
-Set di Render dashboard (bukan di repo):
-- `COOKIES_FILE` - path ke cookies.txt untuk YouTube auth (opsional)
-
 ## Frontend Connection
 
-Setelah deploy, dapatkan URL backend dan update di frontend:
+Setelah ngrok tunnel aktif, update URL backend di frontend:
 
 ```
-https://<backend-service-url>.onrender.com
+https://<domain-ngrok>.ngrok-free.dev
 ```
 
 API endpoints yang dipanggil frontend:
@@ -145,6 +123,6 @@ API endpoints yang dipanggil frontend:
 - Job akan otomatis dibersihkan setelah `JOB_TTL_MINUTES` (default 30 menit)
 - File temp akan dihapus setelah download selesai
 - Error jobs akan otomatis dibersihkan dari memory
-- Maksimal `MAX_CONCURRENT_JOBS` job berjalan bersamaan (default 1 untuk free tier)
+- Maksimal `MAX_CONCURRENT_JOBS` job berjalan bersamaan (default 1)
 - Progress diupdate secara real-time dari yt-dlp dan ffmpeg
 - Graceful shutdown dengan SIGTERM handling
